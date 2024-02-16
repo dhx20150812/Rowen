@@ -89,7 +89,6 @@ def async_chain_of_thought_reasoning(questions, use_chinese=False):
 
 
 def machine_translate(source_text, backward=False):
-    # backward=True代表中文到英文
     prompt = (
         "Translate the following sentences into {}. Only response with translated sentence and do not include any useless content: \n".format(
             "Chinese" if not backward else "English"
@@ -193,7 +192,6 @@ def reduce_hallucination_pipleline():
             )
             item_copy["verifier_perturbated_answers"] = verifier_perturbated_answers
 
-            # Step 6. 验证中英文答案是否一致？
             consistency_check_results = [
                 is_supported(en_answer.lower()) == is_supported_zh(zh_answer.strip())
                 for en_answer, zh_answer in zip(

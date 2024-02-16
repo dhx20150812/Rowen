@@ -118,12 +118,10 @@ STRATEGYQA_CHAIN_OF_THOUGHT_TEMPLATE_ZH = """回答以下 StrategyQA 问题。 �
 STRATEGYQA_FINAL_ANSWER_TEMPLATE = """Based on the above thought process, provide the final answers to the question: {question}. You must directly answer with True or False, and do not involve any other explanations.
 Your Fianl Answer (True or False):"""
 
-# 使用中文简短地回复原问题
 STRATEGYQA_FINAL_ANSWER_TEMPLATE_ZH = """根据上述思考过程，对问题【{question}】提供简短而直接的答案。 你必须直接使用是或否来回答问题，不要包含其他无关的内容，不要解释你的回答。
 
 你的回答（是或否）:"""
 
-# 语义等价扰动
 STRATEGYQA_SEMANTICALLY_EQUIVALENT_PERTERBATIONS_TEMPLATE = """For the following StrategyQA question [QUERIED QUESTION], please understand the question: ensure you fully comprehend what the question is asking, including any implicit assumptions or requirements, and then provide {k} semantically equivalent questions.
 
 QUERIED QUESTION: {question}

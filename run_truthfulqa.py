@@ -155,7 +155,6 @@ def evaluate_answer_factualness(eval_filepath="", batch_size=20):
     for idx, item in enumerate(data):
         item["initial_decision"] = is_response_correct_list[idx]
 
-    # 保存eval的结果
     file_name, file_extension = os.path.splitext(eval_filepath)
     with open(file_name + "_eval" + file_extension, "w") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
@@ -269,7 +268,6 @@ def reduce_hallucination_pipleline():
         ]
         item_copy["retrieved_evidences"] = retrieved_evidences
 
-        # Step 10. 利用检索到的知识生成修复后的答案
         repaired_answer = single_run(
             messages=construct_input_message(
                 prompt=TRUTHFULQA_REPAIR_HALLUCINATION_TEMPLATE.format(
