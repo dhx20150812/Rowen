@@ -259,7 +259,6 @@ def reduce_hallucination_pipleline():
                     cross_model_perturbated_answers
                 )
 
-                # 2. 验证跨模型的答案是否一致
                 cross_model_consistency_check_results = [
                     is_supported(original_answer.lower())
                     == is_supported(cross_model_answer.strip().lower())
