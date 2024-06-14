@@ -34,6 +34,18 @@ Answer A (in English): {a1}
 Answwer B (in Chinese): {a2}
 Your response (True or False):"""
 
+CROSS_MODEL_CONSISTENCY_CHECK_TEMPLATE = """Are the following two Question-Answer(QA) pairs semantically equivalent? Provide your best guess that it is correct (True or False). Given ONLY the guess (True or False), no other words or explanation. 
+
+The first QA pair is:
+Question: {q}
+Answer: {a1}
+
+The second QA pair is:
+Question: {q}
+Answer: {a2}
+
+Your Guess (True or False):"""
+
 TRUTHFULQA_REPAIR_HALLUCINATION_TEMPLATE = """You are an advanced AI with the ability to process and synthesize information efficiently. When provided with a question, you should consider the following in your response:
 
 1. The specific question asked: {question}

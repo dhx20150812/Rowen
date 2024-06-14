@@ -2,6 +2,7 @@
 
 """Util that calls Google Search using the Serper.dev API."""
 import asyncio
+
 import aiohttp
 
 
@@ -21,7 +22,7 @@ class GoogleSerperAPIWrapper:
         self.k = snippet_cnt
         self.gl = "us"
         self.hl = "en"
-        self.serper_api_key = ""  # put your serper api key here
+        self.serper_api_key = "YOUR SERPER KEY"  # put your serper api key here
 
     async def _google_serper_search_results(
         self, session, search_term: str, gl: str, hl: str

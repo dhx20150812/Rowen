@@ -1,15 +1,18 @@
-import os
+import argparse
+import asyncio
 import json
-from tqdm import tqdm
+import os
 from typing import List
 
-import asyncio
+import numpy as np
+from nltk.tokenize import sent_tokenize
 from nltk.translate.bleu_score import corpus_bleu
 from rouge import Rouge
+from tqdm import tqdm
 
-from utils import *
-from prompt_template import *
 from google_serper import GoogleSerperAPIWrapper
+from prompt_template import *
+from utils import *
 
 google_search = GoogleSerperAPIWrapper()
 
@@ -74,6 +77,19 @@ def async_chain_of_thought_reasoning(questions: List[str], use_chinese=False):
     return short_answers
 
 
+def qwen_chain_of_thought_reasoning(question: str, model_name: str):
+    messages = construct_input_message(
+        TRUTHFULQA_INITIAL_ANSWER_TEMPLATE.format(question=question)
+    )
+    # first query
+    long_answer = single_qwen_run(messages, model_name)
+    messages.append({"role": "assistant", "content": long_answer})
+    # second query
+    messages.append({"role": "user", "content": TRUTHFULQA_FINAL_ANSWER_TEMPLATE})
+    short_answer = single_qwen_run(messages, model_name)
+    return long_answer, short_answer
+
+
 def machine_translate(source_text, backward=False):
     prompt = (
         "Translate the following sentences into {}. Only response with translated sentence and do not include any useless content: \n".format(
@@ -129,31 +145,41 @@ def evaluate_answer_factualness(eval_filepath="", batch_size=20):
     print("Rouge-L Score: ", rouge_scores)
 
     # compute the percentage of factual responses
-    is_response_correct_list = []
+    response_list = []
     for idx in tqdm(range(0, len(data), batch_size)):
         batch_input = [
-            construct_input_message(
-                ENTAILMENT_TEMPLATE.format(
-                    information=item["Best Answer"] + " " + item["Correct Answers"],
-                    response=item["initial_response"],
-                )
+            "Q: {0}\nA: {1}\nTrue:".format(
+                item["Question"], sent_tokenize(item["repaired_answer"])[0]
             )
             for item in data[idx : idx + batch_size]
         ]
-        is_response_correct_list.extend(
-            [
-                is_supported(res.lower())
-                for res in asyncio.run(run_api(messages=batch_input))
-            ]
+        response_list.extend(asyncio.run(run_completion_api(batch_input)))
+
+    check_results = []
+    for response in response_list:
+        logprobs = response["choices"][0]["logprobs"]
+        output_str = logprobs["tokens"][0]
+        output_dict = logprobs["top_logprobs"][0]
+        yes_prob = np.exp(output_dict[" yes"]) if " yes" in output_dict else 0.0
+        check_results.append(
+            {
+                "text": output_str,
+                "logprobs": logprobs,
+                "yes_prob": yes_prob,
+                "final_decision": bool(yes_prob >= 0.5),
+            }
         )
+
+    assert len(check_results) == len(data)
+    for idx, item in enumerate(data):
+        item["gpt_judge_results"] = check_results[idx]
+
     factual_response_percentage = (
-        sum(is_response_correct_list) * 1.0 / len(is_response_correct_list)
+        sum([item["gpt_judge_results"]["final_decision"] for item in data])
+        * 1.0
+        / len(data)
     )
     print("Percentage of Factual Response: ", factual_response_percentage)
-
-    assert len(is_response_correct_list) == len(data)
-    for idx, item in enumerate(data):
-        item["initial_decision"] = is_response_correct_list[idx]
 
     file_name, file_extension = os.path.splitext(eval_filepath)
     with open(file_name + "_eval" + file_extension, "w") as f:
@@ -161,11 +187,24 @@ def evaluate_answer_factualness(eval_filepath="", batch_size=20):
 
 
 def reduce_hallucination_pipleline():
-    k = 6
-    threshold = 0.5
+    parser = argparse.ArgumentParser(description="Parameter parsing example")
+    parser.add_argument("--k", type=int, default=6, help="Number of clusters")
+    parser.add_argument("--threshold", type=float, default=0.5, help="Threshold value")
+    parser.add_argument("--alpha", type=float, default=1.0, help="Alpha value")
+    parser.add_argument(
+        "--qwen_model_name", type=str, default="qwen-max-0428", help="Qwen model name"
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["language", "model", "hybrid"],
+        default="hybrid",
+        help="Mode of operation",
+    )
+    args = parser.parse_args()
 
     with open(
-        "",
+        "path/to/truthfulqa/data/file",
         "r",
     ) as f:
         ori_data = json.load(f)
@@ -187,7 +226,7 @@ def reduce_hallucination_pipleline():
         semantic_equivalent_queries_str = single_run(
             messages=construct_input_message(
                 prompt=SEMANTICALLY_EQUIVALENT_PERTERBATIONS_TEMPLATE.format(
-                    question=question, k=k
+                    question=question, k=args.k
                 )
             ),
             temperature=1.0,
@@ -198,64 +237,132 @@ def reduce_hallucination_pipleline():
         ]
         item_copy["perturbated_queries"] = perturbated_queries
 
-        chinese_perturbated_queries = asyncio.run(
-            async_machine_translate(perturbated_queries)
-        )
-        item_copy["chinese_perturbated_queries"] = chinese_perturbated_queries
+        if args.mode != "model":
+            chinese_perturbated_queries = asyncio.run(
+                async_machine_translate(perturbated_queries)
+            )
+            item_copy["chinese_perturbated_queries"] = chinese_perturbated_queries
 
-        target_perturbated_answers = async_chain_of_thought_reasoning(
-            perturbated_queries
-        )
-        item_copy["target_perturbated_answers"] = target_perturbated_answers
+            perturbated_answers = async_chain_of_thought_reasoning(perturbated_queries)
+            item_copy["perturbated_answers"] = perturbated_answers
 
-        verifier_perturbated_answers = async_chain_of_thought_reasoning(
-            chinese_perturbated_queries, use_chinese=True
-        )
-        item_copy["verifier_perturbated_answers"] = verifier_perturbated_answers
+            target_perturbated_answers = async_chain_of_thought_reasoning(
+                chinese_perturbated_queries, use_chinese=True
+            )
+            item_copy["target_perturbated_answers"] = target_perturbated_answers
 
-        consistency_check_results = [
-            is_supported(out.lower())
-            for out in asyncio.run(
-                run_api(
-                    [
-                        construct_input_message(
-                            CROSS_CONSISTENCY_CHECK_TEMPLATE.format(
-                                q=query,
-                                a1=en_answer,
-                                a2=zh_answer,
+            language_consistency_check_results = [
+                is_supported(out.lower())
+                for out in asyncio.run(
+                    run_api(
+                        [
+                            construct_input_message(
+                                CROSS_CONSISTENCY_CHECK_TEMPLATE.format(
+                                    q=query,
+                                    a1=en_answer,
+                                    a2=zh_answer,
+                                )
                             )
-                        )
-                        for query, en_answer, zh_answer in zip(
-                            perturbated_queries,
-                            target_perturbated_answers,
-                            verifier_perturbated_answers,
-                        )
-                    ]
+                            for query, en_answer, zh_answer in zip(
+                                perturbated_queries,
+                                perturbated_answers,
+                                target_perturbated_answers,
+                            )
+                        ]
+                    )
                 )
+            ]
+
+            item_copy["valid_semantic_equivalent_QA_pair"] = [
+                {
+                    "query": query,
+                    "source_answer": en_answer,
+                    "target_answer": zh_answer,
+                    "is_consistent": consistency,
+                }
+                for query, en_answer, zh_answer, consistency in zip(
+                    perturbated_queries,
+                    perturbated_answers,
+                    target_perturbated_answers,
+                    language_consistency_check_results,
+                )
+            ]
+
+            language_consistency_check_score = (
+                sum(language_consistency_check_results)
+                * 1.0
+                / len(language_consistency_check_results)
             )
-        ]
-
-        item_copy["valid_semantic_equivalent_QA_pair"] = [
-            {
-                "query": query,
-                "target_answer": en_answer,
-                "verifier_answer": zh_answer,
-                "is_consistent": consistency,
-            }
-            for query, en_answer, zh_answer, consistency in zip(
-                perturbated_queries,
-                target_perturbated_answers,
-                verifier_perturbated_answers,
-                consistency_check_results,
+            item_copy["language_consistency_check_score"] = (
+                language_consistency_check_score
             )
-        ]
 
-        consistency_check_score = (
-            sum(consistency_check_results) * 1.0 / len(consistency_check_results)
-        )
-        item_copy["consistency_check_score"] = consistency_check_score
+        if args.mode != "language":
+            cross_model_perturbated_answers = [
+                qwen_chain_of_thought_reasoning(query, args.qwen_model_name)[1]
+                for query in perturbated_queries
+            ]
+            item_copy["cross_model_perturbated_answers"] = (
+                cross_model_perturbated_answers
+            )
 
-        if consistency_check_score >= threshold:
+            cross_model_consistency_check_results = [
+                is_supported(out.lower())
+                for out in asyncio.run(
+                    run_api(
+                        [
+                            construct_input_message(
+                                CROSS_MODEL_CONSISTENCY_CHECK_TEMPLATE.format(
+                                    q=query,
+                                    a1=en_answer,
+                                    a2=zh_answer,
+                                )
+                            )
+                            for query, en_answer, zh_answer in zip(
+                                perturbated_queries,
+                                perturbated_answers,
+                                cross_model_perturbated_answers,
+                            )
+                        ]
+                    )
+                )
+            ]
+
+            item_copy["cross_model_semantic_equivalent_pairs"] = [
+                {
+                    "query": query,
+                    "source_answer": en_answer,
+                    "cross_model_answer": cross_model_answer,
+                    "is_consistent": consistency,
+                }
+                for query, en_answer, cross_model_answer, consistency in zip(
+                    perturbated_queries,
+                    perturbated_answers,
+                    cross_model_perturbated_answers,
+                    cross_model_consistency_check_results,
+                )
+            ]
+
+            cross_model_consistency_check_score = (
+                sum(cross_model_consistency_check_results)
+                * 1.0
+                / len(cross_model_consistency_check_results)
+            )
+            item_copy["cross_model_consistency_check_score"] = (
+                cross_model_consistency_check_score
+            )
+
+        if args.mode == "language":
+            consistency_check_score = language_consistency_check_score
+        elif args.mode == "model":
+            consistency_check_score = cross_model_consistency_check_score
+        else:
+            consistency_check_score = (
+                language_consistency_check_score
+                + args.alpha * cross_model_consistency_check_score
+            )
+
+        if consistency_check_score >= args.threshold:
             item_copy["repaired_answer"] = original_short_answer
             generation_data.append(item_copy)
             continue
@@ -282,7 +389,7 @@ def reduce_hallucination_pipleline():
 
         generation_data.append(item_copy)
 
-    save_path = ""
+    save_path = f"truthfulqa_k{args.k}_threshold{args.threshold}_alpha{args.alpha}_qwen-{args.qwen_model_name}_mode-{args.mode}.json"
     with open(
         save_path,
         "w",

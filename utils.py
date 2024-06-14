@@ -1,10 +1,13 @@
-import re
-import time
-import openai
 import asyncio
+import re
 import string
+import time
 
-openai.api_key = ""  # put your openai api key here
+import dashscope
+import openai
+
+openai.api_key = "YOUR OPENAI KEY"  # put your openai api key here
+dashscope.api_key = "YOUR DASHSCOPE KEY"
 
 
 def remove_prefix(text: str) -> str:
@@ -28,6 +31,44 @@ def single_run(messages, retry=3, model="gpt-3.5-turbo-0613", n=1, temperature=0
         except:
             time.sleep(20)
     return None
+
+
+def single_qwen_run(messages, model_name):
+    for _ in range(3):
+        try:
+            response = dashscope.Generation.call(
+                model=model_name,
+                messages=messages,
+                temperature=0.0,
+                result_format="message",  # set the result to be "message" format.
+            )
+            return response["output"]["choices"][0]["message"]["content"]
+        except:
+            time.sleep(10)
+    return None
+
+
+async def run_completion_api(prompts):
+    # Make api calls asynchronously
+    async def single_run(prompt, retry=3):
+        for _ in range(retry):
+            try:
+                output = openai.Completion.create(
+                    model="gpt-judge/model/name",
+                    prompt=prompt,
+                    temperature=0,
+                    max_tokens=1,
+                    stop=None,
+                    echo=False,
+                    logprobs=2,
+                )
+                return output
+            except:
+                await asyncio.sleep(20)
+        return None
+
+    responses = [single_run(prompt) for prompt in prompts]
+    return await asyncio.gather(*responses)
 
 
 async def run_api(messages, model="gpt-3.5-turbo-0613", retry=3, temperature=0.0):
