@@ -13,13 +13,13 @@ We introduce a novel method, Rowen, a novel framework that enhances LLMs with a 
 1. Run experiments on the TruthfulQA dataset
 
 ```bash
-python run_truthfulqa.py --k 6 --threshold 0.6 --alpha 1.0 --qwen_model_name qwen-max-0428 --mode hybrid
+python run_truthfulqa.py --k K --threshold THRESHOLD --alpha ALPHA --qwen_model_name qwen-max-0428 --mode hybrid
 ```
 
 2. Run experiments on the StrategyQA dataset
 
 ```bash
-python run_strategyqa.py --k 6 --threshold 0.6 --alpha 1.0 --qwen_model_name qwen-max-0428 --mode hybrid
+python run_strategyqa.py --k K --threshold THRESHOLD --alpha ALPHA --qwen_model_name qwen-max-0428 --mode hybrid
 ```
 
 Generated responses and evaluation results will be saved automatically.
