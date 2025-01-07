@@ -27,4 +27,4 @@ Generated responses and evaluation results will be saved automatically.
 Please be careful, the experiments are relatively expensive because Rowen calls OpenAI API multiple times for a single question. You can decrease the `k` (number of pertubed questions) in the file to reduce the cost.
 
 ## Performance
-![Main Result of Rowen](fig/main_results.png)
+![Main Result of Rowen](fig/main_result.png)
